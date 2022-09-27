@@ -1,0 +1,623 @@
+import React, {useContext, useEffect, useState, useRef} from "react";
+
+import 'devextreme-react/text-area';
+import DataGrid, {
+    Editing,
+    Column,
+    RequiredRule,
+    PatternRule,
+    Lookup, Summary, TotalItem, SearchPanel, Export, GroupPanel, Grouping, GroupItem, Button as DevButton
+} from 'devextreme-react/data-grid';
+
+
+import Button from "devextreme-react/button";
+import SelectBox from "devextreme-react/select-box";
+import DateBox from "devextreme-react/date-box";
+import fcsServices from "../../../../services/api/fcs";
+import notify from "devextreme/ui/notify";
+import AccountComponent from "../../AccountPayment/AcctComponent";
+import {UserContext} from "../../../../hooks/UserContext";
+import InOrline from "./InOrline";
+import fcsService from "../../../../services/api/fcs";
+
+import {LoadPanel} from "devextreme-react/load-panel";
+import {Popup} from "devextreme-react/popup";
+import ScrollView from "devextreme-react/scroll-view";
+import PivotGridDataSource from "devextreme/ui/pivot_grid/data_source";
+import PivotGrid from "devextreme-react/pivot-grid";
+import {Workbook} from "exceljs";
+import {exportDataGrid} from "devextreme/excel_exporter";
+import {saveAs} from "file-saver-es";
+import CustorgParent from "../../Gl/gledit/custorgParent";
+import _ from "lodash";
+// import {useRef} from "@types/react";
+
+
+const InEntery = (props) => {
+    const {user} = useContext(UserContext);
+    const userListPosition = {of: '#usersList'}
+    const jr_key = props.jr_key;
+    const [organizationNo, setOrganizationNo] = useState(null);
+    const [docno, setDocno] = useState(0);
+
+    const [currentDate, setCurrentDate] = useState();
+    const [listData, setListData] = useState([]);
+    const [dataFcsMonth, setFcsMonth] = useState([]);
+
+    const initCustValue = {name: '', orgcode: ''}
+    const [custValue, setCustValue] = useState({...initCustValue});
+
+    const [selectedChart, setSelectedChart] = useState([]);
+    const [apList, setApList] = useState([]);
+    const [location, setLocation] = useState(null);
+    const [modalVisibleCustOrg, setModalVisibleCustOrg] = useState(false)
+    const [accountSecondList, setAccountSecondList] = useState([]);
+    const [loader, setLoader] = useState(false);
+    const [dataFcsLocation, setFcsLocation] = useState([]);
+    const [acctCr,setAcctCr]=useState([])
+    const [data, setData] = useState([]);
+const  [dataFcsInv,setFcsInv]=useState([])
+
+    let _pivotGrid = useRef(null);
+
+
+    const [drillDownDataSource, setDrillDownDataSource] = useState(null);
+    const [popupVisible, setPopupVisible] = useState(false);
+    const [popupTitle, setPopupTitle] = useState('');
+
+
+    useEffect(() => {
+        setCurrentDate(new Date());
+        getData();
+    }, []);
+
+    {useEffect(() => {
+        sumCal()
+    }, [listData])}
+    const getData = async () => {
+        setLoader(true);
+
+        getDocno()
+
+
+        const fcsArClass = await fcsService.getAllFcsArClass(true);
+        setApList(fcsArClass);
+
+       //
+        const result = await fcsServices.getAllFcsChart();
+        setAccountSecondList(result);
+        const fcsInv = await fcsService.getAllFcsInventory();
+        setFcsInv(fcsInv);
+        const fcsLocation = await fcsService.getAllFcsLocation();
+        setFcsLocation(fcsLocation);
+        const fcsMonth = await fcsService.getAllFcsMonth('IN');
+        setFcsMonth(fcsMonth);
+        getBudgetForm(fcsMonth);
+        return setLoader(false)
+    }
+
+
+    const getDocno = async () => {
+        const fcsMonth = await fcsService.getAllFcsMonth('IN');
+
+        setFcsMonth(fcsMonth);
+        fcsMonth.map((item) => {
+            setDocno(item.orid)
+
+        })
+    }
+    const customizeDate = (data) => {
+        return Number(parseFloat(data.value).toFixed(2)).toLocaleString("en", {
+            minimumFractionDigits: 2,
+        });
+    }
+
+    const getBudgetForm = async (fcsMonth) => {
+        setLoader(true);
+
+
+        setLoader(false);
+    };
+
+
+    const onChangeStNumber = async (e, index) => {
+
+
+        let newArr = [...listData];
+        newArr[index].unit_name = '' ;
+        newArr[index].stname = ''
+        if (e != undefined) {
+
+            newArr[index].inv_id = e ;
+
+            let fcsInv = _.filter(dataFcsInv, {id: e})
+
+            newArr[index].unit_name = fcsInv[0].unit_model.name ;
+            newArr[index].stname = fcsInv[0].descr
+
+        }
+
+
+
+
+
+
+        setListData(newArr)
+
+
+
+    }
+
+    const onChangeCustValue = (e) => {
+        setCustValue(e);
+    }
+
+    const onChangeLocation = (e) => {
+        setLocation(e);
+       console.log("aguulah ",e)
+
+    }
+
+    const onChangeAcctCr = (e) => {
+        setAcctCr(e);
+         console.log("crrrr ",e)
+
+    }
+
+
+    const onValueChangedDate = (e) => {
+        setCurrentDate(e.value);
+    }
+
+
+
+    const clickMinus = (ind) => {
+        setListData(listData.filter((item, index) => index !== ind));
+    }
+    const [sum, setSum] = useState({amt: 0, qty: 0})
+    const updateFieldChanged = (index, e) => {
+        let newArr = [...listData]; // copying the old datas array
+        let val = e.target.value;
+
+        if (e.target.name === "recpt_qty" && val <= 0) val = '';
+        if (e.target.name === "price_unit" && val <= 0) val = '';
+
+
+        newArr[index][e.target.name] = val;
+        newArr[index].amt = newArr[index].recpt_qty*newArr[index].price_unit
+
+        setListData(newArr);
+        console.log(newArr)
+    };
+
+    function sumCal() {
+        let sumAmt = 0;
+        let sumQty = 0;
+        listData.map((el) => {
+
+            sumQty = Number(sumQty) + Number(el.recpt_qty);
+            sumAmt = Number(sumAmt) + Number(el.recpt_qty )* Number(el.price_unit );
+        });
+
+        setSum({
+            amt: sumAmt, qty: Number(sumQty),
+        });
+    }
+
+    const clickPlus = () => {
+
+        if (custValue.name == undefined || custValue == null || custValue.name.length < 2) return notify("Харилцагч хоосон байна.", "warning");
+        if (location === null) return notify("Агуулах сонгох", "warning");
+
+        let list = [...listData];
+        const data1 = {
+
+            docno: 1 + docno,
+            descr: "",
+
+
+            amt: '',
+            recpt_qty: '',
+            price_unit: '',
+            inv_id:'',
+
+            cust: custValue.orgcode,
+
+
+            cr: "",
+            org_id: user.org_id,
+            created_user_id: user.id,
+        }
+        list.push(data1);
+        setListData(list);
+    }
+
+    const saveData = async () => {
+
+        const date = new Date(currentDate);
+        const year = date.getFullYear() * 1e4; // 1e4 gives us the the other digits to be filled later, so 20210000.
+        const month = (date.getMonth() + 1) * 100;
+        const yyyymm = year + month // `+ ''` to convert to string from number, 202206
+
+        const fcsCurrentMonth = dataFcsMonth.map((item) => {
+            let date = item.year + '/' + item.month
+            let datetimenew = new Date(date)
+            let year = datetimenew.getFullYear() * 1e4; // 1e4 gives us the the other digits to be filled later, so 20210000.
+            let month = (datetimenew.getMonth() + 1) * 100;
+            const yyyymm_month = year + month
+            return yyyymm_month
+        });
+
+
+        if (yyyymm != fcsCurrentMonth[0]) {
+
+            notify('Сонгосон огноо тухайн тайлант он сард биш байна', "error", 3000);
+
+            return
+
+        }
+
+
+        // if(organizationNo == null) return notify("Баримтын дугаар хоосон байна.", "warning");
+
+        if (custValue === undefined || custValue === null || custValue.orgcode.length < 2) return notify("Харилцагч хоосон байна.", "warning");
+        if (location === null || location === undefined) return notify("Агуулах хоосон байна.", "warning");
+
+        if (listData.length === 0) return notify("Мэдээлэл байхгүй байна", "warning");
+
+
+        try {
+
+            let listData1 = listData
+
+
+            let errorCount = 0;
+            listData1.some((el) => {
+
+
+                if ( Number(el.amt )<= 0) {
+                    errorCount = errorCount + 1;
+                    return notify("дун = 0 ", "warning");
+
+                    return true;
+                }
+
+                // if (el.stnumber.length < 3) {
+                //     errorCount = errorCount + 1;
+                //     return notify("Бараа сонгох !!!!!! ", "warning");
+                //
+                //     return true;
+                // }
+
+
+                return false;
+            });
+
+            if (errorCount > 0) {
+                return;
+            }
+
+
+
+            const result = await fcsService.getAllFcsMonth('IN');
+            result.map(e => {
+                e.orid = e.orid + 1
+            })
+
+
+            listData1.map((item) => {
+
+
+                if (Number(item.price_unit) <= 0) item.amount = 0
+
+                if (Number(item.recpt_qty) <= 0) item.vat = 0
+
+
+                item.docdate = currentDate;
+                item.docno = parseInt(result[0].orid);
+
+
+             //    item.brn = organizationNo;
+             //   item.acct = apValue.aracct;
+             //   item.acctdb_name = apValue.descr;
+                item.org = custValue.orgcode;
+                item.orgname = custValue.name;
+
+                delete item.id;
+                delete item.updatedAt;
+                let fcsInv = _.filter(dataFcsInv, {id: item.inv_id})
+             //   let fcsUnit = _.filter(dataFcsUnit, {id: item.unit_id})
+                item.created_user_id = user.id;
+                item.org_id = user.org_id;
+                item.date_recpt = currentDate;
+                item.rs_number = 20;
+                item.stnumber = fcsInv[0].stnumber;
+                item.stname = fcsInv[0].descr;
+                item.loctn_id = location.id;
+                item.chart_id = acctCr.id;
+                item.custorgn_id =   custValue.id;
+                item.cr = acctCr.acct;
+                item.org = custValue.orgcode;
+                item.orgname = custValue.name;
+
+                item.loctn_code = location.loctn_code;
+                item.loctn_name = location.loctn_name;
+
+                //  item.unit_name = fcsUnit[0].name;
+                item.acct = fcsInv[0].acctcode;
+                item.inv_recp_id = 20;
+
+             //   getdata();
+
+
+
+
+
+            })
+
+console.log(listData1)
+            await   fcsService.addFcsInOrLin(listData1);
+            await fcsService.editFcsMonth(result[0]);
+            notify("Амжилттай хадгаллаа", "success");
+            const list = [];
+            setListData(list)
+            getDocno()
+            setOrganizationNo('')
+            setLoader(false)
+        } catch (err) {
+            console.log(err)
+            setLoader(false)
+            notify("Алдаа гарлаа", "error")
+        }
+
+
+    }
+
+
+
+
+
+    const onCellClick = (e) => {
+        console.log('e', e);
+        if (e.area === 'data' && e.cell.columnPath[1] === 'Санхүү Гүйцэтгэл') {
+            const pivotGridDataSource = e.component.getDataSource();
+            const rowPathLength = e.cell.rowPath.length;
+            const rowPathName = e.cell.rowPath[rowPathLength - 1];
+            setPopupTitle(`${rowPathName || 'Total'}`);
+            setDrillDownDataSource(pivotGridDataSource.createDrillDownDataSource(e.cell));
+            setPopupVisible(true);
+        }
+    }
+    const onHiding = () => {
+        setPopupVisible(false);
+    }
+
+    const onShown = () => {
+        this.props.data.component.updateDimensions();
+        //this.dataGrid.updateDimensions();
+    }
+    const onExporting = (e) => {
+        const workbook = new Workbook();
+        const worksheet = workbook.addWorksheet('Main sheet');
+
+        exportDataGrid({
+            component: e.component,
+            worksheet,
+            autoFilterEnabled: true,
+        }).then(() => {
+            workbook.xlsx.writeBuffer().then((buffer) => {
+                //`${item.acct} - ${item.descr}`
+                saveAs(new Blob([buffer], {type: 'application/octet-stream'}), `${popupTitle}.xlsx`);
+            });
+        });
+        e.cancel = true;
+    }
+    const cloneIconClick = async (e) => {
+        const list = [...listData];
+        const clonedItem = {...e.row.data};
+        list.splice(e.row.rowIndex, 0, clonedItem);
+        setListData(list);
+        e.event.preventDefault();
+    }
+
+    const style={
+        text: {
+            color: "#2E4765", fontWeight: "600", fontSize: ".875rem"
+        },
+        box: {
+            border: "none", backgroundColor: "#F6F6F6", borderRadius: ".5rem", padding: ".25rem .15rem", width: "100%"
+        }
+    }
+    return (<div style={{padding: "0.5rem",}}>
+
+
+        <LoadPanel
+            shadingColor="rgba(0,0,0,0.4)"
+            position={userListPosition}
+            visible={loader}
+            message=''
+            showPane={false}
+        />
+
+        <div className={'card-body'} id='firstBox'>
+
+
+            <div className="col-2" style={{display: 'flex'}}>
+
+
+                <div style={{display: 'flex', alignItems: 'left'}}><span style={{color : "#A3A3A3", marginRight: ".5rem" }}>Дугаар:</span></div>
+                <div style={{marginLeft: 5}}>
+                <span style={{fontWeight: "700"}}>{1 + docno}</span>
+                </div>
+            </div>
+
+            <div className="col-12" style={{display: 'flex', marginTop: 20}}>
+                <div className="col-4" style={{display: 'flex', flexDirection: "column"}}>
+                        <div style={{ display: 'flex', alignItems: 'center', marginRight: 10,...style.text}}>
+                            Агуулах: </div>
+                        <SelectBox
+                            items={dataFcsLocation}
+
+                            searchEnabled={true}
+                            style={{marginTop: 10,...style.box}}
+
+                            displayExpr={(item) => {
+                                return item && `${item.loctn_code} - ${item.loctn_name}`
+                            }}
+
+                            onValueChanged={(e) => onChangeLocation(e.value)}
+                            placeholder="сонгох"/>
+             </div>
+                <div className="col-4" style={{display: 'flex', flexDirection: "column", marginLeft: 30}}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginRight: 10,...style.text}}>Огноо:
+                    </div>
+                    <DateBox value={currentDate} style={{marginTop: 10,...style.box}} type="date" onValueChanged={onValueChangedDate}/>
+                </div>
+            </div>
+
+            <div className="col-12" style={{display: 'flex', marginTop: 20}}>
+
+                <div className="col-4" style={{display: 'flex', flexDirection: "column"}}>
+                    <div style={{display: 'flex', alignItems: 'center', marginRight: 10,...style.text}}>
+                        Кредит данс:</div>
+                    <SelectBox
+                        items={accountSecondList}
+                        placeholder="сонгох"
+                        name={'cr'}
+
+                        searchEnabled={true}
+                        style={{marginTop: 10,...style.box}}
+                        displayExpr={(item) => {
+                            return item && `${item.acct} - ${item.descr}`
+                        }}
+
+                        onValueChanged={(e) => onChangeAcctCr(e.value)}
+/>
+
+
+                </div>
+                
+
+                <div className="col-4" style={{display: 'flex', flexDirection: "column", marginLeft: 30}}>
+                <div
+                    style={{display: 'flex', alignItems: 'center', marginRight: 10,...style.text}}>Харилцагч:
+                </div>
+
+                    <input type='string' className='law-search-input' 
+                           style={{marginTop: 10, ...style.box}}
+                           onClick={(e) => setModalVisibleCustOrg(true)}
+                           value={custValue.name}
+                    />
+            </div>
+                </div>
+                
+
+            <div className="col-12" style={{marginLeft: 20, marginTop: 50, marginRight: 20}}>
+
+                <div className="col-12" style={{display: 'flex', marginLeft: 20, marginTop: 20}}>
+
+
+
+
+                </div>
+
+
+
+                {listData.map((el, index) => (<InOrline key={index}
+                                                      el={el}
+                                                      clickMinus={clickMinus}
+                                                        dataFcsInv={dataFcsInv}
+                                                        onChangeStNumber={onChangeStNumber}
+                                                      updateFieldChanged={updateFieldChanged}
+
+
+
+                                                      index={index}
+
+                />))}
+                <div className="col-12" style={{display: 'flex', marginLeft: 20, marginTop: 20}}>
+
+                    <div className="col-5" style={{display: 'flex'}}>
+
+                        <div style={{marginLeft: 10}}>
+                            <div style={{display: 'flex', alignItems: 'center'}}></div>
+
+                        </div>
+                    </div>
+
+
+                    <div className="col-3" style={{display: 'flex'}}>
+
+                        <div style={{marginLeft: 10}}>
+                            <div style={{display: 'flex', alignItems: 'center'}}>{
+                                Number(parseFloat(sum.qty).toFixed(2)).toLocaleString("en", {
+                                    minimumFractionDigits: 2,
+                                })
+                            }</div>
+
+                        </div>
+                    </div>
+                    <div className="col-3" style={{display: 'flex'}}>
+
+                        <div style={{marginLeft: 10}}>
+                            <div style={{display: 'flex', alignItems: 'center'}}>
+                              </div>
+
+                        </div>
+                    </div>
+                    <div className="col-4" style={{display: 'flex'}}>
+
+                        <div style={{marginLeft: 10}}>
+                            <div style={{display: 'flex', alignItems: 'center'}}>
+                                {
+                                    Number(parseFloat(sum.amt).toFixed(2)).toLocaleString("en", {
+                                        minimumFractionDigits: 2,
+                                    })
+                                }</div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style={{display: 'flex', flexDirection: 'row', marginTop: 30, marginBottom: 30, marginLeft: 20}}>
+                <Button icon="plus"
+                        text=""
+                        type="default" style={{alignment: "center", borderRadius: '7px'}}
+
+                        onClick={() => clickPlus()}/>
+                <div style={{marginLeft: 30}}>
+                    <Button className="saveButton"
+                            text="Хадгалах"
+
+                            type="default" style={{alignment: "center", borderRadius: '7px'}}
+                            onClick={() => saveData()}/>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <Popup
+                width={500}
+                height={500}
+                minWidth={'80%'}
+                maxWidth={'80%'}
+                minHeight={'80%'}
+                visible={modalVisibleCustOrg}
+                title={'Байгууллага хувь хүмүүс сонгох'}
+                onHiding={() => setModalVisibleCustOrg(false)}
+                resizeEnabled={true}
+                dragEnabled={true}
+                showTitle={true}
+
+            >
+                <CustorgParent   setCustValue={setCustValue} setModalVisibleCustOrg={setModalVisibleCustOrg}/>
+
+            </Popup>
+
+        </div>
+
+
+    </div>);
+};
+
+export default InEntery;
