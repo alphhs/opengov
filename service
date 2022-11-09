@@ -1,0 +1,30 @@
+ const {org_id}= req.query
+    
+    const foundVal= levelFinder(req.user)
+    let query_state_structure = ""
+    let query_state_structure_atr = ""
+    console.log("levelFinder", foundVal)
+    console.log("req.query", req.query)
+    try {
+
+        // TODO:Нэвтэрсэн хэрэглэгчийн state_structure_id -р parent-ийн олж харуулах
+        if (foundVal==="prime"){
+            query_state_structure = `select id, org_id, name, order_no
+            from state_structure ss
+            where parent_id in (select id from state_structure ss2 where org_id = ${org_id}) order by order_no asc;`;
+            query_state_structure_atr = `select *
+            from state_structure_attribute ssa
+            where "name" in ('website', 'logo', 'definition')
+              and state_structure_id in
+                  (select id from state_structure ss where parent_id in (select id from state_structure ss2 where org_id = ${org_id}));`
+
+        } else{
+            query_state_structure = `select id, org_id, name, order_no
+            from state_structure ss
+            where parent_id in (select id from state_structure ss2 where org_id = ${req.user.org_id}) order by order_no asc;`;
+            query_state_structure_atr = `select *
+                                           from state_structure_attribute ssa
+                                           where "name" in ('website', 'logo', 'definition')
+                                             and state_structure_id in
+                                                 (select id from state_structure ss where parent_id in (select id from state_structure ss2 where org_id = ${req.user.org_id}));`
+        }
